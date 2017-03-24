@@ -27,10 +27,10 @@ class metadataDbOps():
 
         pass
 
-    def transactionsTemplate(self, sql, succStr='', failedStr='', executemany=False):
+    def transactionsTemplate(self, sql, succStr='', failedStr='', executemany=False, valuelist=None):
         try:
             if executemany:
-                self.cursor.executemany(sql)
+                self.cursor.executemany(sql, valuelist)
             else:
                 self.cursor.execute(sql)
             self.db.commit()
@@ -82,12 +82,17 @@ class metadataDbOps():
     # def getoneid(self):
     #     pass
 
-    def changestate(self, mdIdnt, newState='3'):
-        sql = 'update ngacMetaData set metadataState = ' + newState + ' ' + 'where mdIdnt="' + mdIdnt + '";'
-        print sql
+    def changestate(self, mdIdnt, newState='3', executemany=False, valuelist=None):
+        # sql = 'update ngacMetaData set metadataState = ' + newState + ' ' + 'where mdIdnt="' + mdIdnt + '";'
+        sql = 'update ngacMetaData set metadataState = %s where mdIdnt = "%s";'
+        # print sql
         succStr = ""
-        failStr = "修改已下载文件" + str(mdIdnt) + ".xml 状态失败！"
-        return self.transactionsTemplate(sql, succStr, failStr)
+        if not executemany:
+            sql = sql % (newState, mdIdnt)
+            failStr = "修改已下载文件" + str(mdIdnt) + ".xml 状态失败！"
+        else:
+            failStr = "修改已下载文件群状态失败！"
+        return self.transactionsTemplate(sql, succStr, failStr, executemany, valuelist)
         pass
 
 class proxyPool2():
@@ -121,7 +126,8 @@ class getmetaDatafromNGAC(metadataDbOps):
         "Host": "catalog.ngac.org.cn",
         # "Referer": """http://mail.qq.com/cgi-bin/mail_spam?action=check_link&url=http://catalog.ngac.org.cn/mutualsearch-access/csw?service=CSW%26request=GetRecordById%26version=2.0.2%26ElementSetName=full%26ID=cgdoi.n0001/x00063534.t02_0033&mailid=GAcJb3MGAAQOGQVbQEJxX1JoAFBNdGxLCX13dHZ+UwMB&spam=0""",
         "Upgrade-Insecure-Requests": '1',
-        "User-Agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:50.0) Gecko/20100101 Firefox/50.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 \
+         Safari/537.36 Edge/12.10240"
     }
     
     
@@ -198,7 +204,9 @@ class getmetaDatafromNGAC(metadataDbOps):
         # proxies = {"http": 'http://' + self.pp2.getoneIp()} if useProxy else None
         # res = requests.get("http://catalog.ngac.org.cn/mutualsearch-access/csw?", headers=self.headers, params=data_encode, timeout=30, proxies=proxies)
         mdIdnt = mdIdnt.replace('/', '+')
-        print res.status_code
+        if res.status_code != 200:
+            print "获取信息失败!", res.status_code
+            return False
         # print res.headers
         # print res.content
         # print res.content
@@ -207,6 +215,7 @@ class getmetaDatafromNGAC(metadataDbOps):
 
             # tmpobj = getDocsByPost()
             # print tmpobj.getDocsInfo()
+        return True
         pass
 
     def run(self):
@@ -214,7 +223,10 @@ class getmetaDatafromNGAC(metadataDbOps):
 
         while(newid):
             try:
-                self.getmetaData(newid, self.getprefixpath(), useProxy=False)
+                if not self.getmetaData(newid, self.getprefixpath(), useProxy=False):                    
+                    self.changestate(newid, newState=1) 
+                    time.sleep(6)
+                    continue
             except Exception:
                 print "获取数据失败..."
                 print traceback.format_exc()
@@ -222,7 +234,7 @@ class getmetaDatafromNGAC(metadataDbOps):
 
             if self.changestate(newid) == False:
                 return False
-
+            print "成功"
             newid = self.iFinishedDownload()
 
             self.preventfileNums += 1
